@@ -18,6 +18,7 @@ class NotificationsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (store.reports.isEmpty) const Text('No updates yet.', style: TextStyle(color: AppColors.muted)),
           for (final report in store.reports.take(3))
             Padding(
               padding: const EdgeInsets.only(bottom: 10),

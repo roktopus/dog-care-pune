@@ -84,44 +84,6 @@ class ReportDetailScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF6EC),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Row(
-                      children: [
-                        const CircleAvatar(
-                          backgroundColor: Color(0xFFFFE4C8),
-                          child: Icon(Icons.headset_mic_outlined, color: AppColors.orange),
-                        ),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Need to add more details?', style: TextStyle(fontWeight: FontWeight.w800)),
-                              Text('Share additional photos or information to help us resolve this faster.', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                        FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.teal,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          ),
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Support can be reached from the Help tab.')),
-                            );
-                          },
-                          child: const Text('Contact Support'),
-                        ),
-                      ],
-                    ),
-                  ),
                   const SizedBox(height: 14),
                   PrimaryButton(
                     label: 'Back to Reports',

@@ -19,8 +19,27 @@ class RootPage extends StatelessWidget {
   }
 }
 
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   const AppShell({super.key});
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  var _asked = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_asked) return;
+    _asked = true;
+    final store = AppScope.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      store.captureLocation();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,10 +67,26 @@ class AppShell extends StatelessWidget {
         }),
         onDestinationSelected: store.setTab,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded, color: AppColors.teal), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.assignment_outlined), selectedIcon: Icon(Icons.assignment, color: AppColors.teal), label: 'Reports'),
-          NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map_rounded, color: AppColors.teal), label: 'Map'),
-          NavigationDestination(icon: Icon(Icons.help_outline), selectedIcon: Icon(Icons.help, color: AppColors.teal), label: 'Help'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded, color: AppColors.teal),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.assignment_outlined),
+            selectedIcon: Icon(Icons.assignment, color: AppColors.teal),
+            label: 'Reports',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map_rounded, color: AppColors.teal),
+            label: 'Map',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.help_outline),
+            selectedIcon: Icon(Icons.help, color: AppColors.teal),
+            label: 'Help',
+          ),
         ],
       ),
     );

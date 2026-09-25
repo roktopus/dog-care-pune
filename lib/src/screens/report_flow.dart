@@ -6,6 +6,9 @@ import 'package:latlong2/latlong.dart';
 
 import '../../main.dart';
 import '../models.dart';
+import '../persistence.dart';
+import '../photo_check.dart';
+import '../pmc/pmc_api.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'report_detail_screen.dart';
@@ -24,8 +27,9 @@ class PhotoStep extends StatelessWidget {
     final draft = store.draft;
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: Padding(
+        child: FitScroll(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -50,7 +54,8 @@ class PhotoStep extends StatelessWidget {
               const SizedBox(height: 10),
               const _Stepper(step: 1, labels: ['Photo', 'Details', 'Review']),
               const SizedBox(height: 12),
-              Expanded(
+              SizedBox(
+                height: 280,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
                   child: Stack(
@@ -58,7 +63,8 @@ class PhotoStep extends StatelessWidget {
                     children: [
                       draft.filePath != null
                           ? Image.file(File(draft.filePath!), fit: BoxFit.cover)
-                          : Image.asset(draft.asset, fit: BoxFit.cover),
+                          : const EmptyPhoto(iconSize: 56),
+                      if (draft.filePath != null)
                       Positioned(
                         right: 10,
                         top: 10,
@@ -115,7 +121,26 @@ class PhotoStep extends StatelessWidget {
               PrimaryButton(
                 label: 'Next',
                 trailing: Icons.chevron_right,
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DetailsStep())),
+                onPressed: () {
+                  if (store.draft.filePath == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add a photo before continuing.')));
+                    return;
+                  }
+                  () async {
+                    store.checkingPhoto = true;
+                    store.touch();
+                    final verdict = await PhotoCheck.inspect(store.draft.filePath!);
+                    store.photoVerdict = verdict;
+                    store.checkingPhoto = false;
+                    store.touch();
+                    if (!context.mounted) return;
+                    if (!verdict.accepted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(verdict.detail)));
+                      return;
+                    }
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const DetailsStep()));
+                  }();
+                },
               ),
             ],
           ),
@@ -128,14 +153,16 @@ class PhotoStep extends StatelessWidget {
     final store = AppScope.of(context);
     try {
       final file = await ImagePicker().pickImage(source: source, imageQuality: 80);
-      if (file != null) {
-        store.draft.filePath = file.path;
-        store.touch();
-      }
+      if (file == null) return;
+      // Keep a durable copy — image_picker cache paths are replaced on the next pick.
+      final saved = await persistReportPhoto(file.path);
+      store.draft.filePath = saved;
+      store.photoVerdict = PhotoVerdict.pending;
+      store.touch();
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Using the sample photo. Camera or gallery is unavailable here.')),
+          const SnackBar(content: Text('Camera or gallery is unavailable on this device.')),
         );
       }
     }
@@ -150,9 +177,24 @@ class DetailsStep extends StatefulWidget {
 }
 
 class _DetailsStepState extends State<DetailsStep> {
-  late final TextEditingController note = TextEditingController(
-    text: 'Dogs chasing people near the gate.',
-  );
+  late final TextEditingController note = TextEditingController();
+  var _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    final store = AppScope.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (!store.draft.locationChosen) {
+        await store.captureLocation();
+      } else if (store.wards.isEmpty) {
+        await store.loadAreas();
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -201,8 +243,12 @@ class _DetailsStepState extends State<DetailsStep> {
                             width: 72,
                             height: 72,
                             child: draft.filePath != null
-                                ? Image.file(File(draft.filePath!), fit: BoxFit.cover)
-                                : Image.asset('assets/images/dog_aggressive.png', fit: BoxFit.cover),
+                                ? Image.file(
+                                    File(draft.filePath!),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const EmptyPhoto(iconSize: 28),
+                                  )
+                                : const EmptyPhoto(iconSize: 28),
                           ),
                         ),
                         const Spacer(),
@@ -215,7 +261,7 @@ class _DetailsStepState extends State<DetailsStep> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('What is the issue?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                        const Text('What Is the Issue?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 8,
@@ -237,20 +283,73 @@ class _DetailsStepState extends State<DetailsStep> {
                   ),
                   const SizedBox(height: 12),
                   SoftCard(
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('How Many Dogs?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                              Text('Select the total number of dogs at this location', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        IconButton.filledTonal(
+                          key: const Key('dog_count_minus'),
+                          onPressed: draft.dogCount <= 1
+                              ? null
+                              : () {
+                                  draft.dogCount--;
+                                  store.touch();
+                                },
+                          icon: const Icon(Icons.remove),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Text(
+                            '${draft.dogCount}',
+                            key: const Key('dog_count_value'),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        IconButton.filled(
+                          key: const Key('dog_count_plus'),
+                          style: IconButton.styleFrom(backgroundColor: AppColors.teal, foregroundColor: Colors.white),
+                          onPressed: () {
+                            draft.dogCount++;
+                            store.touch();
+                          },
+                          icon: const Icon(Icons.add),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SoftCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            const Text('Location', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                            const Spacer(),
-                            TextButton(
+                            const Expanded(
+                              child: Text('Location', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                            ),
+                            IconButton(
+                              tooltip: 'My location',
+                              onPressed: () => store.captureLocation(),
+                              icon: const Icon(Icons.my_location, color: AppColors.teal),
+                            ),
+                            IconButton(
+                              tooltip: 'Change on map',
                               onPressed: () => _changeLocation(context),
-                              child: const Text('Change', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700)),
+                              icon: const Icon(Icons.edit_location_alt_outlined, color: AppColors.teal),
                             ),
                           ],
                         ),
-                        const Text('Detected from your device', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                        Text(
+                          draft.locationChosen ? 'Anywhere in Pune' : 'Use your location or tap the map',
+                          style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                        ),
                         const SizedBox(height: 6),
                         Row(
                           children: [
@@ -260,8 +359,8 @@ class _DetailsStepState extends State<DetailsStep> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(draft.location, style: const TextStyle(fontWeight: FontWeight.w800)),
-                                  Text(draft.area, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                                  Text(draft.location.isEmpty ? 'Location not set' : draft.location, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  Text(draft.area.isEmpty ? 'Pune' : draft.area, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
                                 ],
                               ),
                             ),
@@ -269,56 +368,16 @@ class _DetailsStepState extends State<DetailsStep> {
                         ),
                         const SizedBox(height: 8),
                         SizedBox(
-                          height: 160,
+                          height: 140,
                           child: MapArtwork(
-                            showYou: true,
                             zoom: 15,
-                            pin: LatLng(draft.latitude, draft.longitude),
+                            interactive: false,
+                            pin: draft.locationChosen ? LatLng(draft.latitude, draft.longitude) : null,
+                            you: store.here == null ? null : LatLng(store.here!.latitude, store.here!.longitude),
                             onTap: (point) {
-                              draft.latitude = point.latitude;
-                              draft.longitude = point.longitude;
-                              draft.location = 'Pinned on map';
-                              draft.area = '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}';
-                              store.touch();
+                              store.placeAt(point.latitude, point.longitude, label: 'Pinned on map');
                             },
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SoftCard(
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('How many dogs?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                              Text('Select the total number of dogs at this location', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                        _RoundStep(
-                          icon: Icons.remove,
-                          onTap: () {
-                            if (draft.dogCount > 1) {
-                              draft.dogCount--;
-                              store.touch();
-                            }
-                          },
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: Text('${draft.dogCount}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                        ),
-                        _RoundStep(
-                          icon: Icons.add,
-                          filled: true,
-                          onTap: () {
-                            draft.dogCount++;
-                            store.touch();
-                          },
                         ),
                       ],
                     ),
@@ -328,7 +387,69 @@ class _DetailsStepState extends State<DetailsStep> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Short note (optional)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                        const Text('PMC Area', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                        Text(store.areaNote ?? 'Filled from your location when a PMC ward matches. You can change it.', style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+                        const SizedBox(height: 8),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Ward',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: store.wards.any((ward) => ward.id == draft.wardId) ? draft.wardId : null,
+                              isExpanded: true,
+                              hint: Text(store.wards.isEmpty ? 'Loading wards…' : 'Choose ward'),
+                              items: [
+                                for (final ward in store.wards)
+                                  DropdownMenuItem(value: ward.id, child: Text(ward.name, overflow: TextOverflow.ellipsis)),
+                              ],
+                              onChanged: (id) => store.selectWard(id),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Prabhag',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: store.prabhags.any((item) => item.id == draft.prabhagId) ? draft.prabhagId : null,
+                              isExpanded: true,
+                              hint: Text(
+                                store.prabhags.isEmpty
+                                    ? (draft.wardId == null ? 'Choose a ward first' : 'Loading prabhags…')
+                                    : 'Choose prabhag',
+                              ),
+                              items: [
+                                for (final item in store.prabhags)
+                                  DropdownMenuItem(value: item.id, child: Text(item.name, overflow: TextOverflow.ellipsis)),
+                              ],
+                              onChanged: store.prabhags.isEmpty ? null : (id) => store.selectPrabhag(id),
+                            ),
+                          ),
+                        ),
+                        if (draft.wardName.isNotEmpty || draft.prabhagName.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              [if (draft.wardName.isNotEmpty) draft.wardName, if (draft.prabhagName.isNotEmpty) draft.prabhagName].join(' · '),
+                              style: const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SoftCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Short Note (Optional)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                         TextField(
                           controller: note,
                           maxLength: 200,
@@ -349,6 +470,11 @@ class _DetailsStepState extends State<DetailsStep> {
                 trailing: Icons.chevron_right,
                 onPressed: () {
                   draft.note = note.text;
+                  final problem = store.draftError();
+                  if (problem != null) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem)));
+                    return;
+                  }
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ReviewStep()));
                 },
               ),
@@ -361,19 +487,15 @@ class _DetailsStepState extends State<DetailsStep> {
 
   Future<void> _changeLocation(BuildContext context) async {
     final store = AppScope.of(context);
-    final picked = await Navigator.push<LatLng>(
+    final result = await Navigator.push<Object?>(
       context,
       MaterialPageRoute(
         builder: (_) => _LocationPicker(initial: LatLng(store.draft.latitude, store.draft.longitude)),
       ),
     );
-    if (picked == null) return;
-    store.draft
-      ..latitude = picked.latitude
-      ..longitude = picked.longitude
-      ..location = 'Pinned on map'
-      ..area = '${picked.latitude.toStringAsFixed(5)}, ${picked.longitude.toStringAsFixed(5)}';
-    store.touch();
+    if (result == true) return; // already applied via current-location capture
+    if (result is! LatLng) return;
+    await store.placeAt(result.latitude, result.longitude, label: 'Pinned on map');
   }
 }
 
@@ -388,11 +510,30 @@ class _LocationPicker extends StatefulWidget {
 
 class _LocationPickerState extends State<_LocationPicker> {
   late LatLng point = widget.initial;
+  var _locating = false;
+
+  Future<void> _useCurrent(BuildContext context) async {
+    final store = AppScope.of(context);
+    setState(() => _locating = true);
+    try {
+      await store.captureLocation();
+      if (!mounted) return;
+      if (store.here == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(store.areaNote ?? 'Could not read your location.')),
+        );
+        return;
+      }
+      Navigator.pop(context, true);
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Choose location')),
+      appBar: AppBar(title: const Text('Choose Location')),
       body: Column(
         children: [
           Expanded(
@@ -403,7 +544,17 @@ class _LocationPickerState extends State<_LocationPicker> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: OutlinedButton.icon(
+              onPressed: _locating ? null : () => _useCurrent(context),
+              icon: _locating
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.my_location, color: AppColors.teal),
+              label: Text(_locating ? 'Finding you…' : 'Use my current location', style: const TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: PrimaryButton(
               label: 'Use this location',
               onPressed: () => Navigator.pop(context, point),
@@ -429,7 +580,7 @@ class ReviewStep extends StatelessWidget {
       area: draft.area,
       timeLabel: '',
       status: ReportStatus.submitted,
-      asset: draft.filePath == null ? 'assets/images/dog_aggressive.png' : draft.asset,
+      asset: '',
       issue: draft.issue,
       dogCount: draft.dogCount,
       note: draft.note,
@@ -533,10 +684,10 @@ class ReviewStep extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Before you send', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                        const Text('Before You Send', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                         const Text('Please confirm the following before submitting your report.', style: TextStyle(color: AppColors.muted, fontSize: 12)),
                         const SizedBox(height: 8),
-                        _check('Photo is clear', 'The photo clearly shows the dog/dogs and surroundings.'),
+                        _check('Photo check', store.photoVerdict.detail, ok: store.photoVerdict.accepted),
                         _check('Location looks correct', '${draft.location} is selected.'),
                         _check('Details are ready', 'Issue type, number of dogs and description are added.'),
                       ],
@@ -552,13 +703,26 @@ class ReviewStep extends StatelessWidget {
                   PrimaryButton(
                     label: 'Send Report',
                     icon: Icons.send_rounded,
-                    onPressed: () {
-                      final report = store.submitDraft();
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (_) => SentScreen(report: report)),
-                      );
-                    },
+                    onPressed: store.busy
+                        ? null
+                        : () async {
+                            try {
+                              final report = await store.submitDraft();
+                              if (!context.mounted) return;
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(builder: (_) => SentScreen(report: report)),
+                              );
+                            } on PmcException catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Could not send the report. ${error.toString()}')),
+                              );
+                            }
+                          },
                   ),
                   TextButton.icon(
                     onPressed: () => Navigator.pop(context),
@@ -574,13 +738,13 @@ class ReviewStep extends StatelessWidget {
     );
   }
 
-  Widget _check(String title, String body) {
+  Widget _check(String title, String body, {bool ok = true}) {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.check_circle, color: AppColors.green, size: 20),
+          Icon(ok ? Icons.check_circle : Icons.error, color: ok ? AppColors.green : const Color(0xFFE24B4B), size: 20),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -628,7 +792,7 @@ class SentScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              const Text('Report sent', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
+              const Text('Report Sent', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
               const Text('Your request has been shared successfully.', style: TextStyle(color: AppColors.muted)),
               const SizedBox(height: 14),
               SoftCard(
@@ -809,25 +973,5 @@ class _IssueChip extends StatelessWidget {
       case IssueType.pack:
         return AppColors.green;
     }
-  }
-}
-
-class _RoundStep extends StatelessWidget {
-  const _RoundStep({required this.icon, required this.onTap, this.filled = false});
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool filled;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: CircleAvatar(
-        backgroundColor: filled ? AppColors.teal : const Color(0xFFE8EEF0),
-        child: Icon(icon, color: filled ? Colors.white : AppColors.navy, size: 18),
-      ),
-    );
   }
 }

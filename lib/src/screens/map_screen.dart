@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../main.dart';
 import '../models.dart';
@@ -29,7 +30,7 @@ class _MapScreenState extends State<MapScreen> {
       if (filter == 3) return r.issue == IssueType.pack;
       return true;
     }).toList();
-    final selected = reports.where((r) => r.id == selectedId).firstOrNull ?? reports.first;
+    final selected = reports.where((r) => r.id == selectedId).firstOrNull ?? (reports.isEmpty ? null : reports.first);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -48,20 +49,10 @@ class _MapScreenState extends State<MapScreen> {
               padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Nearby Reports', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+                child: Text('My Reports', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.location_on_outlined, color: AppColors.teal, size: 18),
-                  const SizedBox(width: 4),
-                  const Text('Kondhwa', style: TextStyle(fontWeight: FontWeight.w700)),
-                  const Icon(Icons.keyboard_arrow_down_rounded),
-                ],
-              ),
-            ),
+            const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
@@ -80,9 +71,9 @@ class _MapScreenState extends State<MapScreen> {
                   children: [
                     MapArtwork(
                       markers: reports,
-                      showYou: true,
-                      zoom: 13.5,
-                      selectedId: selected.id,
+                      zoom: reports.isEmpty ? 12 : 13.5,
+                      you: store.here == null ? null : LatLng(store.here!.latitude, store.here!.longitude),
+                      selectedId: selected?.id,
                       onMarker: (r) => setState(() => selectedId = r.id),
                     ),
                     Positioned(
@@ -94,7 +85,13 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ),
             ),
-            Padding(
+            if (selected == null)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Text('No reports yet. Pins appear here only after you send a report. Other people’s reports are not available.', style: TextStyle(color: AppColors.muted)),
+              )
+            else
+              Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: SoftCard(
                 child: Row(

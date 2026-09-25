@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'src/persistence.dart';
+import 'src/pmc/pmc_api.dart';
 import 'src/screens/app_shell.dart';
 import 'src/store.dart';
 import 'src/theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.dark);
-  runApp(DogHelpApp(store: AppStore()));
+  // Production default: live PMC CARE. Tests/simulator may pass --dart-define=FAKE_PMC=true.
+  const fakePmc = bool.fromEnvironment('FAKE_PMC');
+  final store = AppStore(
+    gateway: fakePmc ? FakePmcGateway() : HttpPmcGateway(),
+    reports: await SqliteReports.open(),
+    session: SecureSession(),
+    location: DeviceLocation(),
+  );
+  await store.restore();
+  runApp(DogHelpApp(store: store));
 }
 
 class DogHelpApp extends StatelessWidget {

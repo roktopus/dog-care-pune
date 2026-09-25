@@ -1,128 +1,128 @@
 # Dog Help Pune
 
-A Flutter app for reporting stray-dog issues in Pune and following those reports on a map.
+A Flutter self-help app for reporting stray-dog issues anywhere in Pune through the citizen’s own PMC CARE account.
 
-Dog Help Pune is an independent civic app. It is not an official Pune Municipal Corporation application, and it does not submit complaints to PMC CARE yet.
+Dog Help Pune is an independent civic app. It is not an official Pune Municipal Corporation product, and it does not offer an in-app support desk.
 
 ## Features
 
-- Welcome screen and a home dashboard with open and resolved counts
-- A three-step report: photo, issue details, and review
-- Camera or gallery photo via `image_picker`
-- Live OpenStreetMap view via `flutter_map`, with pan, zoom, and report pins around Kondhwa
-- Tap or **Change** on the report screen to drop a location pin
-- My Reports with All, Open, and Resolved filters
-- Report timeline, nearby map, notifications, profile, and help
+- PMC CARE sign-in with the citizen’s mobile number and the 4-digit OTP PMC sends
+- Three-step report: photo, details (location, ward, prabhag), review and send
+- Camera or gallery photo kept on the phone (PMC receives description and location; attachment is empty because this app has no image host)
+- Device location or a pin anywhere in Pune, with automatic ward/prabhag suggestion from PMC prabhag boundaries
+- My Reports and My Map for reports filed from this phone only (no shared community feed)
+- Local SQLite history and secure session storage; status refresh from PMC while signed in
 
-## Current test behavior
+## PMC CARE account
 
-Mobile verification is bypassed so the app can be tried without a one-time password.
+A PMC CARE account is required. This app does not create accounts.
 
-- **Get Started** and **I already have an account** open Home directly.
-- Reports shown on first launch are sample data stored in memory for that session.
-- A new report gets a local reference number. It is not an official PMC reference.
-- Closing the app clears reports added during the session. Nothing is written to a database yet.
+1. Welcome → **I don’t have a PMC CARE account** opens [PMC registration](https://www.pmccare.in/Login/enter-mobile-number/register).
+2. An unknown number stays locked and opens the same page.
+3. After registering, use **I’ve registered — check again**, then enter the 4-digit OTP.
 
 ## Requirements
 
-- [Flutter](https://docs.flutter.dev/install) stable with Dart `3.13` or later (`sdk: ^3.13.2` in `pubspec.yaml`)
-- Xcode with a signing team, for an iPhone
-- Android Studio or the Android SDK, for an Android device or emulator
-- A network connection so map tiles can load
-
-Check the toolchain:
+- Flutter stable / Dart `^3.13.2` (`pubspec.yaml`)
+- Xcode + signing team (iOS), CocoaPods (`cd ios && pod install`)
+- Android SDK for Android builds
+- Network for PMC CARE and map tiles
 
 ```bash
 flutter doctor
 ```
 
-## Getting started
+## Getting started (production)
+
+Default builds talk to live PMC CARE (`https://api.pmccare.in`). Do not pass `FAKE_PMC` for real use.
 
 ```bash
 git clone <repository-url>
 cd dog-care-pune
 flutter pub get
-```
-
-Run on a connected device or emulator:
-
-```bash
+cd ios && pod install && cd ..
 flutter devices
-flutter run
+flutter run --release
 ```
 
-Run on a specific device:
+Open `ios/Runner.xcworkspace` in Xcode, not `Runner.xcodeproj`. iOS deployment target is 15.5 (ML Kit).
 
-```bash
-flutter run -d <device-id>
-```
-
-On iOS 14 and later, a debug build launched from the home screen shows a black screen. Start debug builds with `flutter run`, or install a release build when you want to open the app from the home screen:
+Release packages:
 
 ```bash
 flutter build ios --release
 flutter build apk --release
 ```
 
-Static analysis and tests:
+On iOS 14+, a debug build opened from the home screen can show a black screen. Prefer `flutter run` for debug, or install a release build for home-screen launches.
+
+## Tests (no live PMC)
 
 ```bash
 flutter analyze
 flutter test
 ```
 
+Tests use an in-memory `FakePmcGateway`. Optional simulator smoke without live traffic:
+
+```bash
+flutter run -d "iPhone 16 Pro" --dart-define=FAKE_PMC=true
+```
+
+Fake OTP is always `1234`. Leave `FAKE_PMC` unset for production.
+
 ## Project structure
 
 ```text
 lib/
-  main.dart                 App entry, theme, and AppScope
+  main.dart                 Entry, AppScope (HttpPmcGateway by default)
   src/
-    models.dart             Reports, issue types, and status
-    store.dart              In-memory session state and sample reports
-    theme.dart              Colors and ThemeData
-    widgets.dart            Shared UI and the OpenStreetMap view
-    screens/                Welcome, home, report flow, list, detail, map, help
-assets/images/              Logo, hero art, and report photos
-test/widget_test.dart       Welcome-screen widget test
+    models.dart             Reports, issues, status
+    store.dart              Session, drafts, submit
+    persistence.dart        SQLite + secure session + durable photos
+    photo_check.dart        Sharpness + dog detection
+    pmc/                    CARE client, mapping, area index
+    screens/                Welcome through report flow, map, help
+assets/data/                PMC prabhag boundary GeoJSON (name matching only)
+assets/images/              Logo and placeholders
+test/                       Widget, PMC, and photo persistence tests
 ```
-
-State is a `ChangeNotifier` (`AppStore`) exposed with `InheritedNotifier`. Screens read it through `AppScope.of(context)`.
 
 ## Permissions
 
 | Platform | Permission | Why |
 | --- | --- | --- |
-| iOS | Camera | Take a report photo |
-| iOS | Photo library | Choose a report photo |
-| iOS | Location when in use | Declared for a future device-location fix |
-| Android | Camera, photos, location | Same reasons |
-
-The map itself does not request location. The blue dot is a fixed Kondhwa point until device location is wired in.
+| iOS / Android | Camera, photos | Report photo |
+| iOS / Android | Location when in use | Pin and ward suggestion |
+| Android | Internet | PMC CARE + map tiles |
 
 ## Map tiles
 
-Map imagery comes from [OpenStreetMap](https://www.openstreetmap.org/copyright) through `https://tile.openstreetmap.org`. Tile requests send the app package name as the user agent, which is required by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
-
-Do not point production traffic at the public tile server. For a wider release, use a tile provider that allows your traffic, or host tiles yourself.
+OpenStreetMap tiles via `https://tile.openstreetmap.org` with the app package as user agent. For heavy production traffic, use a permitted tile provider or self-host.
 
 ## App identity
 
 | | |
 | --- | --- |
 | Display name | Dog Help Pune |
-| Package | `dog_help_pune` |
 | iOS bundle id | `in.pune.doghelp.dogHelpPune` |
 | Android application id | `in.pune.doghelp.dog_help_pune` |
 | Version | `1.0.0+1` |
 
-`publish_to: none` in `pubspec.yaml` keeps this app off pub.dev.
+## PMC CARE notes
+
+Verified against `https://api.pmccare.in` (same surface as [pmc-care-cli](https://github.com/ForceGT/pmc-care-cli)):
+
+- Lookup, categories, wards, and prabhags work without filing
+- OTP and `addGrievanceDirectly` need the citizen’s own account
+- Photos stay on device; PMC attachment is empty (no hosting backend)
+- This app does not invent reference numbers
 
 ## Not in this build
 
-- PMC CARE sign-in, complaint submission, or official status
-- Persistent local storage
-- Device GPS for “your location”
 - Push notifications
+- In-app PMC registration or support chat
+- Uploading photos into PMC object storage
 
 ## License
 

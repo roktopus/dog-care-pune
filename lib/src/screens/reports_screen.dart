@@ -57,6 +57,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(onPressed: store.refreshStatuses, child: const Text('Refresh PMC Status')),
+            ),
+            if (visible.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Text('No reports yet. Reports you send from anywhere in Pune appear here.', style: TextStyle(color: AppColors.muted)),
+              ),
             for (final report in visible) ...[
               ReportRow(report: report, onTap: () => openReport(context, report)),
               const SizedBox(height: 10),

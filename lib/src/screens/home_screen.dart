@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../main.dart';
 import '../theme.dart';
@@ -17,8 +18,9 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8F6),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: FitScroll(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Column(
           children: [
             BrandHeader(
               showActions: true,
@@ -28,34 +30,40 @@ class HomeScreen extends StatelessWidget {
             const SizedBox(height: 14),
             ClipRRect(
               borderRadius: BorderRadius.circular(18),
-              child: SizedBox(
-                height: 92,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.asset('assets/images/hero_dog.png', fit: BoxFit.cover, alignment: const Alignment(0.2, -0.2)),
-                    const DecoratedBox(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Image.asset('assets/images/hero_dog.png', fit: BoxFit.cover, alignment: const Alignment(0.2, -0.2)),
+                  ),
+                  const Positioned.fill(
+                    child: DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [Color(0xF2FFFFFF), Color(0x66FFFFFF)],
                         ),
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 16, 110, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Hi, ${store.name} 👋', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
-                          const Text(
-                            'Together for a safer, kinder Pune 💚',
-                            style: TextStyle(color: AppColors.muted),
-                          ),
-                        ],
-                      ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Hi, ${store.name.isEmpty ? 'There' : store.name} 👋',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, height: 1.2),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Together For a Safer, Kinder Pune 💚',
+                          style: TextStyle(color: AppColors.muted),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 14),
@@ -106,9 +114,9 @@ class HomeScreen extends StatelessWidget {
                 Expanded(child: _StatCard(count: '${store.resolvedCount}', label: 'Resolved', icon: Icons.check_circle_outline, tint: AppColors.green, onTap: () => store.setTab(1))),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             SoftCard(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
               child: Column(
                 children: [
                   Row(
@@ -117,10 +125,15 @@ class HomeScreen extends StatelessWidget {
                       const Spacer(),
                       TextButton(
                         onPressed: () => store.setTab(1),
-                        child: const Text('See all', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700)),
+                        child: const Text('See All', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700)),
                       ),
                     ],
                   ),
+                  if (store.recent.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(0, 8, 0, 16),
+                      child: Text('No reports yet. A report appears here after PMC CARE accepts it.', style: TextStyle(color: AppColors.muted)),
+                    ),
                   for (final report in store.recent) ...[
                     InkWell(
                       onTap: () => openReport(context, report),
@@ -151,7 +164,7 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             SoftCard(
               child: Row(
                 children: [
@@ -163,11 +176,11 @@ class HomeScreen extends StatelessWidget {
                           children: [
                             Icon(Icons.map_outlined, color: AppColors.teal),
                             SizedBox(width: 6),
-                            Text('Nearby Reports', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                            Text('My Map', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                           ],
                         ),
                         const SizedBox(height: 4),
-                        const Text('See dog issues reported\naround you', style: TextStyle(color: AppColors.muted, height: 1.3)),
+                        const Text('Pins for reports you sent.\nNothing from other people.', style: TextStyle(color: AppColors.muted, height: 1.3)),
                         const SizedBox(height: 12),
                         FilledButton.icon(
                           style: FilledButton.styleFrom(
@@ -182,15 +195,19 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const SizedBox(
+                  SizedBox(
                     width: 150,
-                    height: 130,
-                    child: MapArtwork(showYou: true, zoom: 14),
+                    height: 96,
+                    child: MapArtwork(
+                      zoom: 12,
+                      you: store.here == null ? null : LatLng(store.here!.latitude, store.here!.longitude),
+                    ),
                   ),
                 ],
               ),
             ),
           ],
+          ),
         ),
       ),
     );

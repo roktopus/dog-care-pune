@@ -31,7 +31,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo of the dog issue from your gallery.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Detect the location of the dog issue so it can be sent with your report.</string>
+	<string>Find where you are in Pune so the dog report can be sent to the right PMC ward.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

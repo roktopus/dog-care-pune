@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import '../../main.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -13,8 +12,8 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  final _controllers = List.generate(6, (_) => TextEditingController());
-  final _nodes = List.generate(6, (_) => FocusNode());
+  final _controllers = List.generate(4, (_) => TextEditingController());
+  final _nodes = List.generate(4, (_) => FocusNode());
 
   @override
   void dispose() {
@@ -32,9 +31,11 @@ class _SignInScreenState extends State<SignInScreen> {
     final store = AppScope.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        child: FitScroll(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+          child: Column(
           children: [
             Row(
               children: [
@@ -42,7 +43,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.arrow_back_rounded),
                 ),
-                const Text('Sign in', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                const Text('Sign In', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               ],
             ),
             const SizedBox(height: 8),
@@ -57,7 +58,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     children: [
                       Text('Dog Help Pune', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                       Text(
-                        'Use your mobile number to send reports and track updates.',
+                        'A PMC CARE account is required before you can use this app.',
                         style: TextStyle(color: AppColors.muted, fontSize: 13, height: 1.3),
                       ),
                     ],
@@ -74,7 +75,7 @@ class _SignInScreenState extends State<SignInScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Mobile number', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  const Text('Mobile Number', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                   const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -102,29 +103,64 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  PrimaryButton(
-                    label: 'Send Code',
-                    trailing: Icons.arrow_forward_rounded,
-                    onPressed: () {
-                      final digits = store.mobile.replaceAll(RegExp(r'\D'), '');
-                      if (digits.length < 10) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Enter a 10-digit mobile number')),
-                        );
-                        return;
-                      }
-                      store.sendCode();
-                    },
-                  ),
+                  if (!store.needsPmcAccount)
+                    PrimaryButton(
+                      label: store.busy ? 'Checking…' : 'Continue',
+                      trailing: Icons.arrow_forward_rounded,
+                      onPressed: store.busy
+                          ? null
+                          : () async {
+                              final message = await store.requestCode();
+                              if (!context.mounted) return;
+                              if (store.needsPmcAccount) {
+                                await openPmcRegistration(context);
+                              }
+                              if (!context.mounted || message == null) return;
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+                            },
+                    ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
+            if (store.needsPmcAccount)
+              SoftCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('PMC CARE Account Required', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'This number is not registered. Create the account on PMC’s website with this mobile number and your name. Dog Help Pune stays locked until PMC confirms the account.',
+                      style: TextStyle(color: AppColors.muted, height: 1.35),
+                    ),
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                      label: 'Create PMC CARE account',
+                      trailing: Icons.open_in_new,
+                      onPressed: () => openPmcRegistration(context),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlineButton(
+                      label: store.busy ? 'Checking…' : 'I’ve registered — check again',
+                      onPressed: () async {
+                        if (store.busy) return;
+                        final message = await store.requestCode();
+                        if (!context.mounted) return;
+                        if (store.needsPmcAccount) await openPmcRegistration(context);
+                        if (!context.mounted || message == null) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+                      },
+                    ),
+                  ],
+                ),
+              )
+            else if (store.codeSent)
             SoftCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Enter 6-digit code', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  const Text('Enter 4-Digit Code', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                   const SizedBox(height: 4),
                   Text(
                     store.codeSent
@@ -135,7 +171,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: 14),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(6, (i) {
+                    children: List.generate(4, (i) {
                       return SizedBox(
                         width: 44,
                         height: 52,
@@ -155,11 +191,18 @@ class _SignInScreenState extends State<SignInScreen> {
                               borderSide: const BorderSide(color: Color(0xFFE3E8E5)),
                             ),
                           ),
-                          onChanged: (v) {
-                            if (v.isNotEmpty && i < 5) _nodes[i + 1].requestFocus();
+                          onChanged: (v) async {
+                            if (v.isNotEmpty && i < 3) _nodes[i + 1].requestFocus();
                             if (v.isEmpty && i > 0) _nodes[i - 1].requestFocus();
                             final code = _controllers.map((c) => c.text).join();
-                            store.setOtp(code);
+                            if (code.length != 4) return;
+                            final message = await store.verifyCode(code);
+                            if (!context.mounted) return;
+                            if (message != null) {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+                              return;
+                            }
+                            Navigator.pop(context);
                           },
                         ),
                       );
@@ -174,7 +217,7 @@ class _SignInScreenState extends State<SignInScreen> {
                           const TextSpan(text: 'Didn’t receive the code? '),
                           WidgetSpan(
                             child: GestureDetector(
-                              onTap: store.sendCode,
+                              onTap: store.busy ? null : () => store.requestCode(),
                               child: const Text(
                                 'Resend code',
                                 style: TextStyle(
@@ -202,7 +245,7 @@ class _SignInScreenState extends State<SignInScreen> {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Your number is only used to send and track your reports.',
+                            'The app opens only after PMC CARE accepts this number and the 4-digit code.',
                             style: TextStyle(color: AppColors.ink, height: 1.3),
                           ),
                         ),
@@ -212,7 +255,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
             Center(
               child: TextButton(
                 onPressed: () => Navigator.push(
@@ -230,6 +273,7 @@ class _SignInScreenState extends State<SignInScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -246,7 +290,7 @@ class _HelpStub extends StatelessWidget {
       body: const Padding(
         padding: EdgeInsets.all(20),
         child: Text(
-          'Enter the mobile number you use with PMC CARE, then type the 6-digit code sent to that number.',
+          'Dog Help Pune requires a PMC CARE account. Register on PMC’s website if this number is new, then enter the 4-digit code PMC sends.',
           style: TextStyle(fontSize: 16, height: 1.4),
         ),
       ),
